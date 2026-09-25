@@ -120,7 +120,7 @@ function render(){
   const day = asOf.getMonth()+1 === Number(d.month.split("-")[1]) ? asOf.getDate() : days;
   const frac = Math.min(1, day / days);
   $("title").textContent = monthName(d.month);
-  $("asof").textContent = "Through " + asOf.toLocaleString("en-US",{month:"short",day:"numeric"}) + " (day " + day + " of " + days + ", " + Math.round(frac*100) + "% of the month)";
+  $("asof").textContent = "Through " + asOf.toLocaleString("en-US",{month:"short",day:"numeric"}) + " (" + (days-day) + " days, " + Math.round((1-frac)*100) + "% of the month left)";
   const exp = l => l.mode === "fixed" ? l.budget : l.budget * frac;
   const rows = [];
   let nB=0,nS=0,nE=0;
