@@ -65,6 +65,8 @@ tr.grand td{font-weight:700;border-bottom:none}
 .parts{display:block;font-size:12px;color:var(--muted)}
 .pct{color:var(--muted);font-weight:400;font-size:13px;margin-left:6px}
 .g{color:var(--green)} .a{color:var(--amber)} .r{color:var(--red1)} .rr{color:var(--red2);font-weight:700}
+.cum{font-size:15px;color:var(--muted);text-align:right;padding:0 14px;margin-top:-8px}
+.cum b{font-weight:700}
 .legend{font-size:13px;color:var(--muted);max-width:65ch;display:flex;flex-direction:column;gap:4px}
 .msg{padding:18px;color:var(--muted)}
 a{color:var(--accent)}
@@ -85,9 +87,11 @@ form.lock button{font:inherit;font-weight:600;padding:10px 12px;border:0;border-
   </header>
   <div class="months" id="months" role="group" aria-label="Month"></div>
   <div class="card"><div id="table"><div class="msg">Loading spend…</div></div></div>
+  <div class="cum" id="mcum"></div>
   <div class="months" id="quarters" role="group" aria-label="Quarter"></div>
   <div class="asof" id="qasof"></div>
   <div class="card"><div id="qtable"></div></div>
+  <div class="cum" id="qcum"></div>
   <div class="legend">
     <div>Source: Simple view in <a href="https://docs.google.com/spreadsheets/d/1yKrmtj7UHxbCHb6mvvmmgmFUmpMAHhBlj0nc8wE-xfA/edit" target="_blank" rel="noopener">2026 Expenses</a>, refreshed by each expenses download.</div>
   </div>
@@ -182,6 +186,18 @@ function quarterCalc(q){
   return {q: `Q${qn}`, r, dd, dc, top, qfrac, left: qDays-done};
 }
 
+// Running totals under each box: every month (Necessities) and every quarter (Rent + Discretionary) so far.
+function cumLine(label, B, S, E){
+  return `${label}: <b class="${cls(S,E,B)}">${fmt(B-S)}</b>${pct(S,B)} left`;
+}
+function renderCum(){
+  if (!config || !months.length) return;
+  let B=0,S=0,E=0; for (const m of months){ const n = needCalc(m.data); B+=n.B; S+=n.S; E+=n.E; }
+  $("mcum").innerHTML = cumLine(`Necessities, ${shortMonth(months[0].id)} to ${shortMonth(months[months.length-1].id)}`, B, S, E);
+  const qs = [...new Set(months.map(m => qOf(m.id)))];
+  let qB=0,qS=0,qE=0; for (const q of qs){ const c = quarterCalc(q); qB+=c.r.B+c.dd.B; qS+=c.r.S+c.dd.S; qE+=c.r.E+c.dd.E; }
+  $("qcum").innerHTML = cumLine(`Rent and discretionary, ${qs[0].slice(-2)} to ${qs[qs.length-1].slice(-2)}`, qB, qS, qE);
+}
 function bindToggles(){
   document.querySelectorAll(".tog").forEach(b => b.onclick = () => {
     const k = b.dataset.key; collapsed[k] = !collapsed[k];
@@ -205,6 +221,7 @@ function render(){
     rows.push(topRow(top, l.cats || [l.cat], "sub", "need"));
   }
   $("table").innerHTML = tbl(rows);
+  renderCum();
 
   const qc = selectedQ && quarterCalc(selectedQ);
   if (!qc){ $("qtable").innerHTML = '<div class="msg">No spend in this quarter yet.</div>'; $("qasof").textContent = ""; bindToggles(); return; }
@@ -245,7 +262,7 @@ async function decrypt(blob, pass){
 function askPass(msg){
   $("asof").textContent = "";
   $("months").innerHTML = "";
-  $("quarters").innerHTML = ""; $("qasof").textContent = ""; $("qtable").innerHTML = "";
+  $("quarters").innerHTML = ""; $("qasof").textContent = ""; $("qtable").innerHTML = ""; $("mcum").innerHTML = ""; $("qcum").innerHTML = "";
   $("table").innerHTML = `<form class="lock" id="lock"><label for="pass">Passphrase</label><input id="pass" type="password" autocomplete="current-password" autofocus>${msg?`<div class="err">${msg}</div>`:""}<button type="submit">Open</button></form>`;
   $("lock").onsubmit = ev => { ev.preventDefault(); const p = $("pass").value; if (p){ setPass(p); load(); } };
 }
