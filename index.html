@@ -78,7 +78,7 @@ form.lock button{font:inherit;font-weight:600;padding:10px 12px;border:0;border-
   <div class="months" id="months" role="group" aria-label="Month"></div>
   <div class="card"><div id="table"><div class="msg">Loading spend…</div></div></div>
   <div class="legend">
-    <div>Left is the budget minus what has been spent; negative means over budget. It is green when spending is at or under pace, amber up to 10% over, light red from 10% over, dark red from 30% over. Rent, Utilities and Fitness are judged against the full month; everything else against the day of the month of the latest transaction. The grey figure is the share of the month's budget still left. Discretionary categories share one budget, so they show what each has spent.</div>
+    <div>Left is the budget minus what has been spent; negative means over budget. It is green when spending is at or under pace, amber up to 10% over, light red from 10% over, dark red from 30% over. Rent, Utilities and Fitness are judged against the full month; other Necessities against how far through the month the latest transaction is, with Saturdays and Sundays counting 1.4 days and Mon to Fri 0.84 (from your 2025 to 2026 spend). Discretionary is paced on plain calendar days. The grey figure is the share of the month's budget still left. Discretionary categories share one budget, so they show what each has spent.</div>
     <div>Source: Simple view in <a href="https://docs.google.com/spreadsheets/d/1yKrmtj7UHxbCHb6mvvmmgmFUmpMAHhBlj0nc8wE-xfA/edit" target="_blank" rel="noopener">2026 Expenses</a>, refreshed by each expenses download.</div>
   </div>
 </div>
@@ -89,6 +89,14 @@ const $ = id => document.getElementById(id);
 const fmt = n => (n < 0 ? "-$" : "$") + Math.round(Math.abs(n)).toLocaleString("en-US");
 let config = null, months = [], selected = null;
 
+// Necessities pacing weights from Jan 2025 to Sep 2026 spend: Sat/Sun days count 1.40, Mon-Fri 0.84 (a week sums to 7).
+const W_WEEKEND = 1.40, W_WEEKDAY = 0.84;
+function weightedFrac(ym, day){
+  const [y,m] = ym.split("-").map(Number), n = new Date(y, m, 0).getDate();
+  let done = 0, all = 0;
+  for (let i = 1; i <= n; i++){ const g = new Date(y, m-1, i).getDay(); const w = (g===0||g===6) ? W_WEEKEND : W_WEEKDAY; all += w; if (i <= day) done += w; }
+  return Math.min(1, done / all);
+}
 function daysIn(ym){ const [y,m] = ym.split("-").map(Number); return new Date(y, m, 0).getDate(); }
 function monthName(ym){ const [y,m] = ym.split("-").map(Number); return new Date(y, m-1, 1).toLocaleString("en-US",{month:"long",year:"numeric"}); }
 function shortMonth(ym){ const [y,m] = ym.split("-").map(Number); return new Date(y, m-1, 1).toLocaleString("en-US",{month:"short"}); }
@@ -118,10 +126,11 @@ function render(){
   const days = daysIn(d.month);
   const asOf = new Date(d.asOf + "T12:00:00");
   const day = asOf.getMonth()+1 === Number(d.month.split("-")[1]) ? asOf.getDate() : days;
-  const frac = Math.min(1, day / days);
+  const frac = Math.min(1, day / days);          // calendar pacing (Discretionary)
+  const nfrac = weightedFrac(d.month, day);        // weekend-weighted pacing (Necessities)
   $("title").textContent = monthName(d.month);
-  $("asof").textContent = "Through " + asOf.toLocaleString("en-US",{month:"short",day:"numeric"}) + " (" + (days-day) + " days, " + Math.round((1-frac)*100) + "% of the month left)";
-  const exp = l => l.mode === "fixed" ? l.budget : l.budget * frac;
+  $("asof").textContent = "Through " + asOf.toLocaleString("en-US",{month:"short",day:"numeric"}) + " (" + (days-day) + " days, " + Math.round((1-nfrac)*100) + "% of the month left, weekends weighted)";
+  const exp = l => l.mode === "fixed" ? l.budget : l.budget * nfrac;
   const rows = [];
   let rB=0,rS=0,rE=0;
   if (config.rent){ const l = config.rent; rB = l.budget; rS = Number(spend[l.cat]||0); rE = exp(l); rows.push(row("Rent", rB, rS, rE, "total")); }
