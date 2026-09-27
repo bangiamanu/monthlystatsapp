@@ -40,6 +40,10 @@ h1{margin:0;font-size:26px;font-weight:700;letter-spacing:-.01em}
 .months button{font:inherit;font-size:13px;padding:4px 12px;border-radius:999px;border:1px solid var(--line);background:var(--surface);color:var(--ink);cursor:pointer}
 .months button[aria-pressed="true"]{background:var(--accent);border-color:var(--accent);color:var(--surface)}
 .months button:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.months button.g{color:var(--green);border-color:var(--green)} .months button.a{color:var(--amber);border-color:var(--amber)}
+.months button.r{color:var(--red1);border-color:var(--red1)} .months button.rr{color:var(--red2);border-color:var(--red2);font-weight:700}
+.months button[aria-pressed="true"].g{background:var(--green);color:var(--surface)} .months button[aria-pressed="true"].a{background:var(--amber);color:var(--surface)}
+.months button[aria-pressed="true"].r{background:var(--red1);color:var(--surface)} .months button[aria-pressed="true"].rr{background:var(--red2);color:var(--surface)}
 .card{background:var(--surface);border:1px solid var(--line);border-radius:8px;overflow-x:auto}
 table{width:100%;border-collapse:collapse;font-variant-numeric:tabular-nums}
 th{font-size:12px;color:var(--muted);font-weight:600;text-align:right;padding:10px 14px;border-bottom:1px solid var(--line)}
@@ -53,6 +57,10 @@ tr[data-grp="disc"] td{color:var(--muted)}
 .tog:hover{color:var(--ink);border-color:var(--muted)}
 .tog:focus-visible{outline:2px solid var(--accent);outline-offset:1px}
 tr.total td{font-weight:700;background:var(--ground)}
+tr.topline td{font-size:12px;line-height:1.35;color:var(--muted);text-align:left;white-space:normal;padding-top:0;padding-bottom:8px}
+tr.topline.sub td{padding-left:44px}
+tr.topline.total td{background:var(--ground);font-weight:400}
+tr:has(+ tr.topline) td{border-bottom:none;padding-bottom:2px}
 tr.grand td{font-weight:700;border-bottom:none}
 .parts{display:block;font-size:12px;color:var(--muted)}
 .pct{color:var(--muted);font-weight:400;font-size:13px;margin-left:6px}
@@ -112,6 +120,15 @@ function row(name, b, s, e, extra, grp){
   return `<tr class="${extra||""}"${grp?` data-grp="${grp}"`:""}${grp&&collapsed[grp]?" hidden":""}><td>${name}</td><td class="num">${fmt(b)}</td><td><span class="${cls(s,e,b)}">${fmt(b-s)}</span>${pct(s,b)}</td></tr>`;
 }
 let collapsed = {need:true, disc:true};
+const esc = s => String(s).replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+// Grey line under a row: the 3 biggest merchants/items across the given categories this month.
+function topRow(top, cats, cls, grp){
+  if (!top) return "";
+  const items = [].concat(...cats.map(c => top[c] || [])).sort((a,b) => b[1]-a[1]).slice(0,3);
+  if (!items.length) return "";
+  const txt = items.map(([n,v,k]) => `${esc(n)} ${fmt(v)}${k>1?` (${k})`:""}`).join(" · ");
+  return `<tr class="topline ${cls||""}"${grp?` data-grp="${grp}"`:""}${grp&&collapsed[grp]?" hidden":""}><td colspan="3">${txt}</td></tr>`;
+}
 function head(key, label){
   const open = !collapsed[key];
   return `<button type="button" class="tog" id="tog-${key}" data-key="${key}" aria-expanded="${open}" aria-label="${open?"Collapse":"Expand"} ${label}">${open?"\u2212":"+"}</button>${label}`;
@@ -121,7 +138,7 @@ function render(){
   if (!config || !selected) return;
   const doc = months.find(m => m.id === selected);
   if (!doc) return;
-  const d = doc.data, spend = d.spend || {};
+  const d = doc.data, spend = d.spend || {}, top = d.top;
   const days = daysIn(d.month);
   const asOf = new Date(d.asOf + "T12:00:00");
   const day = asOf.getMonth()+1 === Number(d.month.split("-")[1]) ? asOf.getDate() : days;
@@ -132,7 +149,7 @@ function render(){
   const exp = l => l.mode === "fixed" ? l.budget : l.budget * nfrac;
   const rows = [];
   let rB=0,rS=0,rE=0;
-  if (config.rent){ const l = config.rent; rB = l.budget; rS = Number(spend[l.cat]||0); rE = exp(l); rows.push(row("Rent", rB, rS, rE, "total")); }
+  if (config.rent){ const l = config.rent; rB = l.budget; rS = Number(spend[l.cat]||0); rE = exp(l); rows.push(row("Rent", rB, rS, rE, "total")); rows.push(topRow(top, [l.cat], "total")); }
   let nB=0,nS=0,nE=0;
   const needRows=[];
   for (const l of config.necessities){
@@ -140,14 +157,17 @@ function render(){
     nB+=l.budget; nS+=s; nE+=e;
     const label = l.cats ? `${l.cat}<span class="parts">${l.cats.join(", ")}</span>` : l.cat;
     needRows.push(row(label, l.budget, s, e, "sub", "need"));
+    needRows.push(topRow(top, l.cats || [l.cat], "sub", "need"));
   }
   rows.push(row(head("need","Necessities"), nB, nS, nE, "total"));
+  if (collapsed.need) rows.push(topRow(top, config.necessities.flatMap(l => l.cats || [l.cat]), "total"));
   rows.push(...needRows);
   const disc = config.discretionary;
   let dS = 0; for (const c of disc.cats) dS += Number(spend[c]||0);
   const dE = disc.budget * frac;
   rows.push(row(head("disc","Discretionary"), disc.budget, dS, dE, "total"));
-  for (const c of disc.cats) rows.push(`<tr class="sub" data-grp="disc"${collapsed.disc?" hidden":""}><td>${c}</td><td></td><td>${fmt(Number(spend[c]||0))} spent</td></tr>`);
+  if (collapsed.disc) rows.push(topRow(top, disc.cats, "total"));
+  for (const c of disc.cats){ rows.push(`<tr class="sub" data-grp="disc"${collapsed.disc?" hidden":""}><td>${c}</td><td></td><td>${fmt(Number(spend[c]||0))} spent</td></tr>`); rows.push(topRow(top, [c], "sub", "disc")); }
   rows.push(row("Total", rB+nB+disc.budget, rS+nS+dS, rE+nE+dE, "grand"));
   $("table").innerHTML = `<table><thead><tr><th>Category</th><th>Budget</th><th>Left</th></tr></thead><tbody>${rows.join("")}</tbody></table>`;
   $("table").querySelectorAll(".tog").forEach(b => b.onclick = () => {
@@ -157,8 +177,22 @@ function render(){
   });
 }
 
+// Colour for a month button: same rule as that month's Total row (budget, spend, pace-expected).
+function monthCls(d){
+  if (!config) return "";
+  const spend = d.spend || {}, days = daysIn(d.month);
+  const asOf = new Date(d.asOf + "T12:00:00");
+  const day = asOf.getMonth()+1 === Number(d.month.split("-")[1]) ? asOf.getDate() : days;
+  const frac = Math.min(1, day / days), nfrac = weightedFrac(d.month, day);
+  const sp = c => Number(spend[c]||0);
+  let B = 0, S = 0, E = 0;
+  if (config.rent){ B += config.rent.budget; S += sp(config.rent.cat); E += config.rent.budget; }
+  for (const l of config.necessities){ B += l.budget; S += l.cats ? l.cats.reduce((t,c)=>t+sp(c),0) : sp(l.cat); E += l.mode === "fixed" ? l.budget : l.budget*nfrac; }
+  const disc = config.discretionary; B += disc.budget; S += disc.cats.reduce((t,c)=>t+sp(c),0); E += disc.budget*frac;
+  return cls(S, E, B);
+}
 function renderMonths(){
-  $("months").innerHTML = months.map(m => `<button type="button" id="m-${m.id}" aria-pressed="${m.id===selected}" data-id="${m.id}">${shortMonth(m.id)}</button>`).join("");
+  $("months").innerHTML = months.map(m => `<button type="button" id="m-${m.id}" class="${monthCls(m.data)}" aria-pressed="${m.id===selected}" data-id="${m.id}">${shortMonth(m.id)}</button>`).join("");
   $("months").querySelectorAll("button").forEach(b => b.onclick = () => { selected = b.dataset.id; renderMonths(); render(); });
 }
 
