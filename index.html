@@ -80,11 +80,14 @@ form.lock button{font:inherit;font-weight:600;padding:10px 12px;border:0;border-
 <body>
 <div class="wrap">
   <header>
-    <h1 id="title">Monthly budget</h1>
+    <h1 id="title">2026 Budget</h1>
     <div class="asof" id="asof">Loading…</div>
   </header>
   <div class="months" id="months" role="group" aria-label="Month"></div>
   <div class="card"><div id="table"><div class="msg">Loading spend…</div></div></div>
+  <div class="months" id="quarters" role="group" aria-label="Quarter"></div>
+  <div class="asof" id="qasof"></div>
+  <div class="card"><div id="qtable"></div></div>
   <div class="legend">
     <div>Source: Simple view in <a href="https://docs.google.com/spreadsheets/d/1yKrmtj7UHxbCHb6mvvmmgmFUmpMAHhBlj0nc8wE-xfA/edit" target="_blank" rel="noopener">2026 Expenses</a>, refreshed by each expenses download.</div>
   </div>
@@ -94,7 +97,7 @@ form.lock button{font:inherit;font-weight:600;padding:10px 12px;border:0;border-
 
 const $ = id => document.getElementById(id);
 const fmt = n => (n < 0 ? "-$" : "$") + Math.round(Math.abs(n)).toLocaleString("en-US");
-let config = null, months = [], selected = null;
+let config = null, months = [], selected = null, selectedQ = null;
 
 // Necessities pacing weights from Jan 2025 to Sep 2026 spend: Sat/Sun days count 1.40, Mon-Fri 0.84 (a week sums to 7).
 const W_WEEKEND = 1.40, W_WEEKDAY = 0.84;
@@ -134,67 +137,99 @@ function head(key, label){
   return `<button type="button" class="tog" id="tog-${key}" data-key="${key}" aria-expanded="${open}" aria-label="${open?"Collapse":"Expand"} ${label}">${open?"\u2212":"+"}</button>${label}`;
 }
 
-function render(){
-  if (!config || !selected) return;
-  const doc = months.find(m => m.id === selected);
-  if (!doc) return;
-  const d = doc.data, spend = d.spend || {}, top = d.top;
-  const days = daysIn(d.month);
-  const asOf = new Date(d.asOf + "T12:00:00");
+// Pacing for one month doc: day reached, calendar share, weekend-weighted share.
+function pace(d){
+  const days = daysIn(d.month), asOf = new Date(d.asOf + "T12:00:00");
   const day = asOf.getMonth()+1 === Number(d.month.split("-")[1]) ? asOf.getDate() : days;
-  const frac = Math.min(1, day / days);          // calendar pacing (Discretionary)
-  const nfrac = weightedFrac(d.month, day);        // weekend-weighted pacing (Necessities)
-  $("title").textContent = monthName(d.month);
-  $("asof").textContent = "Through " + asOf.toLocaleString("en-US",{month:"short",day:"numeric"}) + " (" + (days-day) + " days, " + Math.round((1-nfrac)*100) + "% of the month left, weekends weighted)";
-  const exp = l => l.mode === "fixed" ? l.budget : l.budget * nfrac;
-  const rows = [];
-  let rB=0,rS=0,rE=0;
-  if (config.rent){ const l = config.rent; rB = l.budget; rS = Number(spend[l.cat]||0); rE = exp(l); rows.push(row("Rent", rB, rS, rE, "total")); rows.push(topRow(top, [l.cat], "total")); }
-  let nB=0,nS=0,nE=0;
-  const needRows=[];
-  for (const l of config.necessities){
-    const s = l.cats ? l.cats.reduce((t,c)=>t+Number(spend[c]||0),0) : Number(spend[l.cat]||0), e = exp(l);
-    nB+=l.budget; nS+=s; nE+=e;
-    const label = l.cats ? `${l.cat}<span class="parts">${l.cats.join(", ")}</span>` : l.cat;
-    needRows.push(row(label, l.budget, s, e, "sub", "need"));
-    needRows.push(topRow(top, l.cats || [l.cat], "sub", "need"));
+  return {days, day, asOf, frac: Math.min(1, day/days), nfrac: weightedFrac(d.month, day)};
+}
+const qOf = id => { const [y,m] = id.split("-").map(Number); return `${y}-Q${Math.ceil(m/3)}`; };
+const tbl = rows => `<table><thead><tr><th>Category</th><th>Budget</th><th>Left</th></tr></thead><tbody>${rows.join("")}</tbody></table>`;
+
+// Monthly: Necessities only (weekend-weighted pacing; fixed lines judged against the full month).
+function needCalc(d){
+  const spend = d.spend || {}, p = pace(d);
+  const lines = config.necessities.map(l => {
+    const s = l.cats ? l.cats.reduce((t,c)=>t+Number(spend[c]||0),0) : Number(spend[l.cat]||0);
+    return {l, s, e: l.mode === "fixed" ? l.budget : l.budget * p.nfrac};
+  });
+  const B = lines.reduce((t,x)=>t+x.l.budget,0), S = lines.reduce((t,x)=>t+x.s,0), E = lines.reduce((t,x)=>t+x.e,0);
+  return {p, lines, B, S, E};
+}
+
+// Quarterly: Rent and Discretionary pooled over the quarter's months.
+function quarterCalc(q){
+  const ms = months.filter(m => qOf(m.id) === q);
+  if (!ms.length) return null;
+  const [y, qn] = [Number(q.slice(0,4)), Number(q.slice(-1))];
+  const mIds = [1,2,3].map(i => `${y}-${String(3*(qn-1)+i).padStart(2,"0")}`);
+  const last = ms[ms.length-1], lp = pace(last.data), li = mIds.indexOf(last.id);
+  const qDays = mIds.reduce((t,id)=>t+daysIn(id),0);
+  const done = mIds.slice(0,li).reduce((t,id)=>t+daysIn(id),0) + lp.day;
+  const qfrac = Math.min(1, done/qDays);
+  const sum = c => ms.reduce((t,m)=>t+Number((m.data.spend||{})[c]||0),0);
+  const rent = config.rent, disc = config.discretionary;
+  const r = {B: rent.budget*3, S: sum(rent.cat), E: rent.budget*(li+1)};   // rent: a full month's rent per month started
+  const dc = disc.cats.map(c => ({c, s: sum(c)}));
+  const dd = {B: disc.budget*3, S: dc.reduce((t,x)=>t+x.s,0), E: disc.budget*3*qfrac};
+  // Quarter top items: merge each month's top lists by name.
+  const top = {};
+  for (const m of ms) for (const [c, items] of Object.entries(m.data.top || {})){
+    const agg = top[c] = top[c] || {};
+    for (const [n,v,k] of items){ agg[n] = agg[n] || [n,0,0]; agg[n][1] += v; agg[n][2] += k; }
   }
-  rows.push(row(head("need","Necessities"), nB, nS, nE, "total"));
-  if (collapsed.need) rows.push(topRow(top, config.necessities.flatMap(l => l.cats || [l.cat]), "total"));
-  rows.push(...needRows);
-  const disc = config.discretionary;
-  let dS = 0; for (const c of disc.cats) dS += Number(spend[c]||0);
-  const dE = disc.budget * frac;
-  rows.push(row(head("disc","Discretionary"), disc.budget, dS, dE, "total"));
-  if (collapsed.disc) rows.push(topRow(top, disc.cats, "total"));
-  for (const c of disc.cats){ rows.push(`<tr class="sub" data-grp="disc"${collapsed.disc?" hidden":""}><td>${c}</td><td></td><td>${fmt(Number(spend[c]||0))} spent</td></tr>`); rows.push(topRow(top, [c], "sub", "disc")); }
-  rows.push(row("Total", rB+nB+disc.budget, rS+nS+dS, rE+nE+dE, "grand"));
-  $("table").innerHTML = `<table><thead><tr><th>Category</th><th>Budget</th><th>Left</th></tr></thead><tbody>${rows.join("")}</tbody></table>`;
-  $("table").querySelectorAll(".tog").forEach(b => b.onclick = () => {
+  for (const c in top) top[c] = Object.values(top[c]).sort((a,b)=>b[1]-a[1]).slice(0,3);
+  return {q: `Q${qn}`, r, dd, dc, top, qfrac, left: qDays-done};
+}
+
+function bindToggles(){
+  document.querySelectorAll(".tog").forEach(b => b.onclick = () => {
     const k = b.dataset.key; collapsed[k] = !collapsed[k];
     render();
     const nb = document.getElementById("tog-"+k); if (nb) nb.focus();
   });
 }
 
-// Colour for a month button: same rule as that month's Total row (budget, spend, pace-expected).
-function monthCls(d){
-  if (!config) return "";
-  const spend = d.spend || {}, days = daysIn(d.month);
-  const asOf = new Date(d.asOf + "T12:00:00");
-  const day = asOf.getMonth()+1 === Number(d.month.split("-")[1]) ? asOf.getDate() : days;
-  const frac = Math.min(1, day / days), nfrac = weightedFrac(d.month, day);
-  const sp = c => Number(spend[c]||0);
-  let B = 0, S = 0, E = 0;
-  if (config.rent){ B += config.rent.budget; S += sp(config.rent.cat); E += config.rent.budget; }
-  for (const l of config.necessities){ B += l.budget; S += l.cats ? l.cats.reduce((t,c)=>t+sp(c),0) : sp(l.cat); E += l.mode === "fixed" ? l.budget : l.budget*nfrac; }
-  const disc = config.discretionary; B += disc.budget; S += disc.cats.reduce((t,c)=>t+sp(c),0); E += disc.budget*frac;
-  return cls(S, E, B);
+function render(){
+  if (!config || !selected) return;
+  const doc = months.find(m => m.id === selected);
+  if (!doc) return;
+  const d = doc.data, top = d.top, n = needCalc(d), p = n.p;
+  $("title").textContent = d.month.slice(0,4) + " Budget";
+  $("asof").textContent = "Through " + p.asOf.toLocaleString("en-US",{month:"short",day:"numeric"}) + " (" + (p.days-p.day) + " days, " + Math.round((1-p.nfrac)*100) + "% of the month left, weekends weighted)";
+  const rows = [row(head("need","Necessities"), n.B, n.S, n.E, "total")];
+  if (collapsed.need) rows.push(topRow(top, config.necessities.flatMap(l => l.cats || [l.cat]), "total"));
+  for (const {l, s, e} of n.lines){
+    const label = l.cats ? `${l.cat}<span class="parts">${l.cats.join(", ")}</span>` : l.cat;
+    rows.push(row(label, l.budget, s, e, "sub", "need"));
+    rows.push(topRow(top, l.cats || [l.cat], "sub", "need"));
+  }
+  $("table").innerHTML = tbl(rows);
+
+  const qc = selectedQ && quarterCalc(selectedQ);
+  if (!qc){ $("qtable").innerHTML = '<div class="msg">No spend in this quarter yet.</div>'; $("qasof").textContent = ""; bindToggles(); return; }
+  $("qasof").textContent = `${qc.q}: rent and discretionary (${qc.left} days, ${Math.round((1-qc.qfrac)*100)}% of the quarter left)`;
+  const disc = config.discretionary;
+  const qr = [row("Rent", qc.r.B, qc.r.S, qc.r.E, "total"), topRow(qc.top, [config.rent.cat], "total"),
+              row(head("disc","Discretionary"), qc.dd.B, qc.dd.S, qc.dd.E, "total")];
+  if (collapsed.disc) qr.push(topRow(qc.top, disc.cats, "total"));
+  for (const {c, s} of qc.dc){ qr.push(`<tr class="sub" data-grp="disc"${collapsed.disc?" hidden":""}><td>${c}</td><td></td><td>${fmt(s)} spent</td></tr>`); qr.push(topRow(qc.top, [c], "sub", "disc")); }
+  qr.push(row("Total", qc.r.B+qc.dd.B, qc.r.S+qc.dd.S, qc.r.E+qc.dd.E, "grand"));
+  $("qtable").innerHTML = tbl(qr);
+  bindToggles();
 }
+
+// Month buttons are coloured by that month's Necessities; quarter buttons by Rent + Discretionary for the quarter.
 function renderMonths(){
-  $("months").innerHTML = months.map(m => `<button type="button" id="m-${m.id}" class="${monthCls(m.data)}" aria-pressed="${m.id===selected}" data-id="${m.id}">${shortMonth(m.id)}</button>`).join("");
+  $("months").innerHTML = months.map(m => { const n = config ? needCalc(m.data) : null;
+    return `<button type="button" id="m-${m.id}" class="${n?cls(n.S,n.E,n.B):""}" aria-pressed="${m.id===selected}" data-id="${m.id}">${shortMonth(m.id)}</button>`; }).join("");
   $("months").querySelectorAll("button").forEach(b => b.onclick = () => { selected = b.dataset.id; renderMonths(); render(); });
+  const qs = [...new Set(months.map(m => qOf(m.id)))];
+  $("quarters").innerHTML = qs.map(q => { const c = config ? quarterCalc(q) : null;
+    return `<button type="button" id="q-${q}" class="${c?cls(c.r.S+c.dd.S, c.r.E+c.dd.E, c.r.B+c.dd.B):""}" aria-pressed="${q===selectedQ}" data-id="${q}">${q.slice(-2)}</button>`; }).join("");
+  $("quarters").querySelectorAll("button").forEach(b => b.onclick = () => { selectedQ = b.dataset.id; renderMonths(); render(); });
 }
+
 
 
 const PASS_KEY = "budget-pass";
@@ -210,6 +245,7 @@ async function decrypt(blob, pass){
 function askPass(msg){
   $("asof").textContent = "";
   $("months").innerHTML = "";
+  $("quarters").innerHTML = ""; $("qasof").textContent = ""; $("qtable").innerHTML = "";
   $("table").innerHTML = `<form class="lock" id="lock"><label for="pass">Passphrase</label><input id="pass" type="password" autocomplete="current-password" autofocus>${msg?`<div class="err">${msg}</div>`:""}<button type="submit">Open</button></form>`;
   $("lock").onsubmit = ev => { ev.preventDefault(); const p = $("pass").value; if (p){ setPass(p); load(); } };
 }
@@ -226,6 +262,7 @@ async function load(){
   months = Object.keys(data.months).sort().map(id => ({id, data:data.months[id]}));
   if (!months.length){ $("table").innerHTML = '<div class="msg">No spend loaded yet.</div>'; return; }
   if (!selected || !months.some(m => m.id === selected)) selected = months[months.length-1].id;
+  if (!selectedQ || !months.some(m => qOf(m.id) === selectedQ)) selectedQ = qOf(months[months.length-1].id);
   renderMonths(); render();
 }
 document.addEventListener("visibilitychange", () => { if (document.visibilityState === "visible" && getPass()) load(); });
