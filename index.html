@@ -67,6 +67,10 @@ tr.grand td{font-weight:700;border-bottom:none}
 .g{color:var(--green)} .a{color:var(--amber)} .r{color:var(--red1)} .rr{color:var(--red2);font-weight:700}
 .cum{font-size:15px;color:var(--muted);text-align:right;padding:0 14px;margin-top:-8px}
 .cum b{font-weight:700}
+.fees{display:flex;flex-direction:column;gap:6px;padding:0;text-align:left;color:var(--muted);font-size:15px}
+.fees b{color:var(--ink);font-weight:700}
+.fbar{height:8px;border-radius:999px;background:var(--line);overflow:hidden}
+.fbar span{display:block;height:100%;background:var(--muted)}
 .legend{font-size:13px;color:var(--muted);max-width:65ch;display:flex;flex-direction:column;gap:4px}
 .msg{padding:18px;color:var(--muted)}
 a{color:var(--accent)}
@@ -92,6 +96,7 @@ form.lock button{font:inherit;font-weight:600;padding:10px 12px;border:0;border-
   <div class="asof" id="qasof"></div>
   <div class="card"><div id="qtable"></div></div>
   <div class="cum" id="qcum"></div>
+  <div class="fees" id="fees"></div>
   <div class="legend">
     <div>Source: Simple view in <a href="https://docs.google.com/spreadsheets/d/1yKrmtj7UHxbCHb6mvvmmgmFUmpMAHhBlj0nc8wE-xfA/edit" target="_blank" rel="noopener">2026 Expenses</a>, refreshed by each expenses download.</div>
   </div>
@@ -186,17 +191,34 @@ function quarterCalc(q){
   return {q: `Q${qn}`, r, dd, dc, top, qfrac, left: qDays-done};
 }
 
-// Running totals under each box: every month (Necessities) and every quarter (Rent + Discretionary) so far.
+// Running totals under each box: every month (Necessities) and every quarter (Discretionary only; rent is always covered).
+// Per day = what is left in the CURRENT period / days left in it. Necessities per day leaves out the fixed lines (Utilities, Fitness).
+// Completed periods only (Jan to last month, Q1 to last quarter), then the current period's per-day allowance.
 function cumLine(label, B, S, E){
-  return `${label}: <b class="${cls(S,E,B)}">${fmt(B-S)}</b>${pct(S,B)} left`;
+  return `${label}: <b class="${cls(S,E,B)}">${fmt(B-S)}</b>${pct(S,B)}. `;
 }
 function renderCum(){
   if (!config || !months.length) return;
-  let B=0,S=0,E=0; for (const m of months){ const n = needCalc(m.data); B+=n.B; S+=n.S; E+=n.E; }
-  $("mcum").innerHTML = cumLine(`Necessities, ${shortMonth(months[0].id)} to ${shortMonth(months[months.length-1].id)}`, B, S, E);
-  const qs = [...new Set(months.map(m => qOf(m.id)))];
-  let qB=0,qS=0,qE=0; for (const q of qs){ const c = quarterCalc(q); qB+=c.r.B+c.dd.B; qS+=c.r.S+c.dd.S; qE+=c.r.E+c.dd.E; }
-  $("qcum").innerHTML = cumLine(`Rent and discretionary, ${qs[0].slice(-2)} to ${qs[qs.length-1].slice(-2)}`, qB, qS, qE);
+  const past = months.slice(0,-1), curId = months[months.length-1].id;
+  let B=0,S=0,E=0; for (const m of past){ const n = needCalc(m.data); B+=n.B; S+=n.S; E+=n.E; }
+  const cur = needCalc(months[months.length-1].data);
+  const varLeft = cur.lines.filter(x => x.l.mode !== "fixed").reduce((t,x)=>t+x.l.budget-x.s,0);
+  const nDay = varLeft / Math.max(1, cur.p.days - cur.p.day);
+  $("mcum").innerHTML = (past.length ? cumLine(`Necessities, ${shortMonth(past[0].id)} to ${shortMonth(past[past.length-1].id)}`, B, S, E) : "Necessities: ")
+    + `${shortMonth(curId)}: ${fmt(nDay)} per day left`;
+  const qs = [...new Set(months.map(m => qOf(m.id)))], pq = qs.slice(0,-1), curQ = qs[qs.length-1];
+  let qB=0,qS=0,qE=0; for (const q of pq){ const c = quarterCalc(q); qB+=c.dd.B; qS+=c.dd.S; qE+=c.dd.E; }
+  const cq = quarterCalc(curQ);
+  const dDay = (cq.dd.B - cq.dd.S) / Math.max(1, cq.left);
+  $("qcum").innerHTML = (pq.length ? cumLine(`Discretionary, ${pq[0].slice(-2)} to ${pq[pq.length-1].slice(-2)}`, qB, qS, qE) : "Discretionary: ")
+    + `${curQ.slice(-2)}: ${fmt(dDay)} per day left`;
+  // Yearly fees: its own row outside Necessities, Rent and Discretionary; year-to-date spend against a yearly budget, neutral bar (no pace colours).
+  const f = config.fees;
+  if (f){
+    const fs = months.reduce((t,m)=>t+Number((m.data.spend||{})[f.cat]||0),0);
+    const w = f.budget > 0 ? Math.min(100, Math.max(0, fs/f.budget*100)) : 0;
+    $("fees").innerHTML = `<div>Yearly fees: <b>${fmt(fs)}</b> / ${fmt(f.budget)}</div><div class="fbar"><span style="width:${w}%"></span></div>`;
+  } else $("fees").innerHTML = "";
 }
 function bindToggles(){
   document.querySelectorAll(".tog").forEach(b => b.onclick = () => {
@@ -262,7 +284,7 @@ async function decrypt(blob, pass){
 function askPass(msg){
   $("asof").textContent = "";
   $("months").innerHTML = "";
-  $("quarters").innerHTML = ""; $("qasof").textContent = ""; $("qtable").innerHTML = ""; $("mcum").innerHTML = ""; $("qcum").innerHTML = "";
+  $("quarters").innerHTML = ""; $("qasof").textContent = ""; $("qtable").innerHTML = ""; $("mcum").innerHTML = ""; $("qcum").innerHTML = ""; $("fees").innerHTML = "";
   $("table").innerHTML = `<form class="lock" id="lock"><label for="pass">Passphrase</label><input id="pass" type="password" autocomplete="current-password" autofocus>${msg?`<div class="err">${msg}</div>`:""}<button type="submit">Open</button></form>`;
   $("lock").onsubmit = ev => { ev.preventDefault(); const p = $("pass").value; if (p){ setPass(p); load(); } };
 }
