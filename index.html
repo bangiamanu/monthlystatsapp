@@ -67,6 +67,9 @@ tr.grand td{font-weight:700;border-bottom:none}
 .g{color:var(--green)} .a{color:var(--amber)} .r{color:var(--red1)} .rr{color:var(--red2);font-weight:700}
 .cum{font-size:15px;color:var(--muted);text-align:right;padding:0 14px;margin-top:-8px}
 .cum b{font-weight:700}
+.cum div{line-height:1.5}
+.cum .pct{display:inline!important;margin-left:6px!important}
+.cum .n{white-space:nowrap}
 .fees{display:flex;flex-direction:column;gap:6px;padding:0;text-align:left;color:var(--muted);font-size:15px}
 .fees b{color:var(--ink);font-weight:700}
 .fbar{height:8px;border-radius:999px;background:var(--line);overflow:hidden}
@@ -195,7 +198,7 @@ function quarterCalc(q){
 // Per day = what is left in the CURRENT period / days left in it. Necessities per day leaves out the fixed lines (Utilities, Fitness).
 // Completed periods only (Jan to last month, Q1 to last quarter), then the current period's per-day allowance.
 function cumLine(label, B, S, E){
-  return `${label}: <b class="${cls(S,E,B)}">${fmt(B-S)}</b>${pct(S,B)}. `;
+  return `<div>${label}: <span class="n"><b class="${cls(S,E,B)}">${fmt(B-S)}</b>${pct(S,B)}</span></div>`;
 }
 function renderCum(){
   if (!config || !months.length) return;
@@ -204,14 +207,14 @@ function renderCum(){
   const cur = needCalc(months[months.length-1].data);
   const varLeft = cur.lines.filter(x => x.l.mode !== "fixed").reduce((t,x)=>t+x.l.budget-x.s,0);
   const nDay = varLeft / Math.max(1, cur.p.days - cur.p.day);
-  $("mcum").innerHTML = (past.length ? cumLine(`Necessities, ${shortMonth(past[0].id)} to ${shortMonth(past[past.length-1].id)}`, B, S, E) : "Necessities: ")
-    + `${shortMonth(curId)}: ${fmt(nDay)} per day left`;
+  $("mcum").innerHTML = (past.length ? cumLine(`Necessities, ${shortMonth(past[0].id)} to ${shortMonth(past[past.length-1].id)}`, B, S, E) : "")
+    + `<div>${shortMonth(curId)}: ${fmt(nDay)} per day left</div>`;
   const qs = [...new Set(months.map(m => qOf(m.id)))], pq = qs.slice(0,-1), curQ = qs[qs.length-1];
   let qB=0,qS=0,qE=0; for (const q of pq){ const c = quarterCalc(q); qB+=c.dd.B; qS+=c.dd.S; qE+=c.dd.E; }
   const cq = quarterCalc(curQ);
   const dDay = (cq.dd.B - cq.dd.S) / Math.max(1, cq.left);
-  $("qcum").innerHTML = (pq.length ? cumLine(`Discretionary, ${pq[0].slice(-2)} to ${pq[pq.length-1].slice(-2)}`, qB, qS, qE) : "Discretionary: ")
-    + `${curQ.slice(-2)}: ${fmt(dDay)} per day left`;
+  $("qcum").innerHTML = (pq.length ? cumLine(`Discretionary, ${pq[0].slice(-2)} to ${pq[pq.length-1].slice(-2)}`, qB, qS, qE) : "")
+    + `<div>${curQ.slice(-2)}: ${fmt(dDay)} per day left</div>`;
   // Yearly fees: its own row outside Necessities, Rent and Discretionary; year-to-date spend against a yearly budget, neutral bar (no pace colours).
   const f = config.fees;
   if (f){
