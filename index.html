@@ -65,6 +65,8 @@ tr.grand td{font-weight:700;border-bottom:none}
 .parts{display:block;font-size:12px;color:var(--muted)}
 .pct{color:var(--muted);font-weight:400;font-size:13px;margin-left:6px}
 .g{color:var(--green)} .a{color:var(--amber)} .r{color:var(--red1)} .rr{color:var(--red2);font-weight:700}
+.pct.hl{font-weight:700} .pct.hl.g{color:var(--green)} .pct.hl.a{color:var(--amber)} .pct.hl.r{color:var(--red1)}
+.asof b.g{color:var(--green)} .asof b.a{color:var(--amber)} .asof b.r{color:var(--red1)}
 .cum{font-size:15px;color:var(--muted);text-align:right;padding:0 14px;margin-top:-8px}
 .cum b{font-weight:700}
 .cum div{line-height:1.5}
@@ -130,9 +132,11 @@ function cls(spend, expected, budget){
   if (r <= 1.10) return "a";
   return r <= 1.30 ? "r" : "rr";
 }
-function pct(s, b){ return b > 0 ? `<span class="pct">(${Math.round((b-s)/b*100)}%)</span>` : ""; }
-function row(name, b, s, e, extra, grp){
-  return `<tr class="${extra||""}"${grp?` data-grp="${grp}"`:""}${grp&&collapsed[grp]?" hidden":""}><td>${name}</td><td class="num">${fmt(b)}</td><td><span class="${cls(s,e,b)}">${fmt(b-s)}</span>${pct(s,b)}</td></tr>`;
+function pct(s, b, hc){ return b > 0 ? `<span class="pct${hc?" hl "+hc:""}">(${Math.round((b-s)/b*100)}%)</span>` : ""; }
+// Budget left vs time left, as a relative gap: green if budget left >= time left; amber if (time left - budget left) / budget left <= 10%; red beyond (or nothing left).
+function lagCls(s, b, timeLeft){ const left = b > 0 ? (b-s)/b : 0; if (left >= timeLeft) return "g"; return left > 0 && (timeLeft-left)/left <= 0.10 ? "a" : "r"; }
+function row(name, b, s, e, extra, grp, hc){
+  return `<tr class="${extra||""}"${grp?` data-grp="${grp}"`:""}${grp&&collapsed[grp]?" hidden":""}><td>${name}</td><td class="num">${fmt(b)}</td><td><span class="${cls(s,e,b)}">${fmt(b-s)}</span>${pct(s,b,hc)}</td></tr>`;
 }
 let collapsed = {need:true, disc:true};
 const esc = s => String(s).replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
@@ -237,8 +241,9 @@ function render(){
   if (!doc) return;
   const d = doc.data, top = d.top, n = needCalc(d), p = n.p;
   $("title").textContent = d.month.slice(0,4) + " Budget";
-  $("asof").textContent = "Through " + p.asOf.toLocaleString("en-US",{month:"short",day:"numeric"}) + " (" + (p.days-p.day) + " days, " + Math.round((1-p.nfrac)*100) + "% of the month left, weekends weighted)";
-  const rows = [row(head("need","Necessities"), n.B, n.S, n.E, "total")];
+  const nc = lagCls(n.S, n.B, 1-p.nfrac);
+  $("asof").innerHTML = "Through " + p.asOf.toLocaleString("en-US",{month:"short",day:"numeric"}) + " (" + (p.days-p.day) + ` days, <b class="${nc}">${Math.round((1-p.nfrac)*100)}%</b> of the month left, weekends weighted)`;
+  const rows = [row(head("need","Necessities"), n.B, n.S, n.E, "total", null, nc)];
   if (collapsed.need) rows.push(topRow(top, config.necessities.flatMap(l => l.cats || [l.cat]), "total"));
   for (const {l, s, e} of n.lines){
     const label = l.cats ? `${l.cat}<span class="parts">${l.cats.join(", ")}</span>` : l.cat;
@@ -250,10 +255,11 @@ function render(){
 
   const qc = selectedQ && quarterCalc(selectedQ);
   if (!qc){ $("qtable").innerHTML = '<div class="msg">No spend in this quarter yet.</div>'; $("qasof").textContent = ""; bindToggles(); return; }
-  $("qasof").textContent = `${qc.q}: rent and discretionary (${qc.left} days, ${Math.round((1-qc.qfrac)*100)}% of the quarter left)`;
+  const dcl = lagCls(qc.dd.S, qc.dd.B, 1-qc.qfrac);
+  $("qasof").innerHTML = `${qc.q}: rent and discretionary (${qc.left} days, <b class="${dcl}">${Math.round((1-qc.qfrac)*100)}%</b> of the quarter left)`;
   const disc = config.discretionary;
   const qr = [row("Rent", qc.r.B, qc.r.S, qc.r.E, "total"), topRow(qc.top, [config.rent.cat], "total"),
-              row(head("disc","Discretionary"), qc.dd.B, qc.dd.S, qc.dd.E, "total")];
+              row(head("disc","Discretionary"), qc.dd.B, qc.dd.S, qc.dd.E, "total", null, dcl)];
   if (collapsed.disc) qr.push(topRow(qc.top, disc.cats, "total"));
   for (const {c, s} of qc.dc){ qr.push(`<tr class="sub" data-grp="disc"${collapsed.disc?" hidden":""}><td>${c}</td><td></td><td>${fmt(s)} spent</td></tr>`); qr.push(topRow(qc.top, [c], "sub", "disc")); }
   qr.push(row("Total", qc.r.B+qc.dd.B, qc.r.S+qc.dd.S, qc.r.E+qc.dd.E, "grand"));
