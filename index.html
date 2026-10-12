@@ -186,8 +186,19 @@ function quarterCalc(q){
   const sum = c => ms.reduce((t,m)=>t+Number((m.data.spend||{})[c]||0),0);
   const rent = config.rent, disc = config.discretionary;
   const r = {B: rent.budget*3, S: sum(rent.cat), E: rent.budget*(li+1)};   // rent: a full month's rent per month started
-  const dc = disc.cats.map(c => ({c, s: sum(c)}));
+  // A quarter plan (config.discretionary.plans["YYYY-Qn"]) gives per-line budgets inside the same pool;
+  // whatever the lines do not use is "Unallocated", and any line's overspend eats into it.
+  const plan = (disc.plans || {})[q];
+  const cats = plan ? [...new Set([...disc.cats, ...plan.lines.flatMap(l => l.cats || [l.cat])])] : disc.cats;
+  const dc = cats.map(c => ({c, s: sum(c)}));
   const dd = {B: disc.budget*3, S: dc.reduce((t,x)=>t+x.s,0), E: disc.budget*3*qfrac};
+  let pl = null, un = null;
+  if (plan){
+    pl = plan.lines.map(l => { const cs = l.cats || [l.cat]; const s = cs.reduce((t,c)=>t+sum(c),0);
+      return {l, cs, s, e: l.mode === "fixed" ? l.budget : l.budget*qfrac}; });
+    const ub = dd.B - pl.reduce((t,x)=>t+x.l.budget,0), over = pl.reduce((t,x)=>t+Math.max(0, x.s-x.l.budget),0);
+    un = {B: ub, S: over, E: ub};
+  }
   // Quarter top items: merge each month's top lists by name.
   const top = {};
   for (const m of ms) for (const [c, items] of Object.entries(m.data.top || {})){
@@ -195,7 +206,7 @@ function quarterCalc(q){
     for (const [n,v,k] of items){ agg[n] = agg[n] || [n,0,0]; agg[n][1] += v; agg[n][2] += k; }
   }
   for (const c in top) top[c] = Object.values(top[c]).sort((a,b)=>b[1]-a[1]).slice(0,3);
-  return {q: `Q${qn}`, r, dd, dc, top, qfrac, left: qDays-done};
+  return {q: `Q${qn}`, r, dd, dc, cats, pl, un, top, qfrac, left: qDays-done};
 }
 
 // Running totals under each box: every month (Necessities) and every quarter (Discretionary only; rent is always covered).
@@ -260,8 +271,17 @@ function render(){
   const disc = config.discretionary;
   const qr = [row("Rent", qc.r.B, qc.r.S, qc.r.E, "total"), topRow(qc.top, [config.rent.cat], "total"),
               row(head("disc","Discretionary"), qc.dd.B, qc.dd.S, qc.dd.E, "total", null, dcl)];
-  if (collapsed.disc) qr.push(topRow(qc.top, disc.cats, "total"));
-  for (const {c, s} of qc.dc){ qr.push(`<tr class="sub" data-grp="disc"${collapsed.disc?" hidden":""}><td>${c}</td><td></td><td>${fmt(s)} spent</td></tr>`); qr.push(topRow(qc.top, [c], "sub", "disc")); }
+  if (collapsed.disc) qr.push(topRow(qc.top, qc.cats, "total"));
+  if (qc.pl){
+    for (const {l, cs, s, e} of qc.pl){
+      const label = l.note ? `${esc(l.label || l.cat)}<span class="parts">${esc(l.note)}</span>` : esc(l.label || l.cat);
+      qr.push(row(label, l.budget, s, e, "sub", "disc"));
+      qr.push(topRow(qc.top, cs, "sub", "disc"));
+    }
+    qr.push(row(`Unallocated<span class="parts">absorbs any line's overspend</span>`, qc.un.B, qc.un.S, qc.un.E, "sub", "disc"));
+  } else {
+    for (const {c, s} of qc.dc){ qr.push(`<tr class="sub" data-grp="disc"${collapsed.disc?" hidden":""}><td>${c}</td><td></td><td>${fmt(s)} spent</td></tr>`); qr.push(topRow(qc.top, [c], "sub", "disc")); }
+  }
   qr.push(row("Total", qc.r.B+qc.dd.B, qc.r.S+qc.dd.S, qc.r.E+qc.dd.E, "grand"));
   $("qtable").innerHTML = tbl(qr);
   bindToggles();
