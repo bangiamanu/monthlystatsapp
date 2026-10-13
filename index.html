@@ -133,8 +133,8 @@ function cls(spend, expected, budget){
   return r <= 1.30 ? "r" : "rr";
 }
 function pct(s, b, hc){ return b > 0 ? `<span class="pct${hc?" hl "+hc:""}">(${Math.round((b-s)/b*100)}%)</span>` : ""; }
-// Budget left vs time left, as a relative gap: green if budget left >= time left; amber if (time left - budget left) / budget left <= 10%; red beyond (or nothing left).
-function lagCls(s, b, timeLeft){ const left = b > 0 ? (b-s)/b : 0; if (left >= timeLeft) return "g"; return left > 0 && (timeLeft-left)/left <= 0.10 ? "a" : "r"; }
+// Budget left vs time left, as a relative gap (his rule, 13 Oct 2026): green if budget left >= time left; amber if (time left - budget left) / time left <= 10%; red beyond (or nothing left).
+function lagCls(s, b, timeLeft){ const left = b > 0 ? (b-s)/b : 0; if (left >= timeLeft) return "g"; return left > 0 && (timeLeft-left)/timeLeft <= 0.10 ? "a" : "r"; }
 function row(name, b, s, e, extra, grp, hc){
   return `<tr class="${extra||""}"${grp?` data-grp="${grp}"`:""}${grp&&collapsed[grp]?" hidden":""}><td>${name}</td><td class="num">${fmt(b)}</td><td><span class="${cls(s,e,b)}">${fmt(b-s)}</span>${pct(s,b,hc)}</td></tr>`;
 }
