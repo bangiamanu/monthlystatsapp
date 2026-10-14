@@ -145,8 +145,9 @@ function gapCls(x){ return x.g >= 0 ? "g" : (x.g >= -0.10 ? "a" : "r"); }
 function gapTxt(x){ const r = Math.round(x.d); return (r > 0 ? "+" : r < 0 ? "\u2212" : "") + "$" + Math.abs(r).toLocaleString("en-US"); }
 function row(name, b, s, e, extra, grp, hc, gap){
   // Every row (his rule, 14 Oct 2026): dollars left, then the dollar gap to plan to date in brackets, both coloured by the gap rule.
+  // gap null = no delta (fixed lines and Unallocated, his rule 14 Oct 2026): plain amount left, coloured against the full budget.
   if (gap === undefined) gap = gapOf(e, s);
-  const amt = gapCls(gap), tail = `<span class="pct hl ${gapCls(gap)}">(${gapTxt(gap)})</span>`;
+  const amt = gap === null ? cls(s,e,b) : gapCls(gap), tail = gap === null ? "" : `<span class="pct hl ${gapCls(gap)}">(${gapTxt(gap)})</span>`;
   return `<tr class="${extra||""}"${grp?` data-grp="${grp}"`:""}${grp&&collapsed[grp]?" hidden":""}><td>${name}</td><td class="num">${fmt(b)}</td><td><span class="${amt}">${fmt(b-s)}</span>${tail}</td></tr>`;
 }
 let collapsed = {need:true, disc:true};
@@ -268,7 +269,7 @@ function render(){
   if (collapsed.need) rows.push(topRow(top, config.necessities.flatMap(l => l.cats || [l.cat]), "total"));
   for (const {l, s, e} of n.lines){
     const label = l.cats ? `${l.cat}<span class="parts">${l.cats.join(", ")}</span>` : l.cat;
-    rows.push(row(label, l.budget, s, e, "sub", "need"));
+    rows.push(row(label, l.budget, s, e, "sub", "need", null, l.mode === "fixed" ? null : undefined));
     rows.push(topRow(top, l.cats || [l.cat], "sub", "need"));
   }
   $("table").innerHTML = tbl(rows);
@@ -285,10 +286,10 @@ function render(){
   if (qc.pl){
     for (const {l, cs, s, e} of qc.pl){
       const label = l.note ? `${esc(l.label || l.cat)}<span class="parts">${esc(l.note)}</span>` : esc(l.label || l.cat);
-      qr.push(row(label, l.budget, s, e, "sub", "disc"));
+      qr.push(row(label, l.budget, s, e, "sub", "disc", null, l.mode === "fixed" ? null : undefined));
       qr.push(topRow(qc.top, cs, "sub", "disc"));
     }
-    qr.push(row(`Unallocated<span class="parts">absorbs any line's overspend</span>`, qc.un.B, qc.un.S, qc.un.E, "sub", "disc"));
+    qr.push(row(`Unallocated<span class="parts">absorbs any line's overspend</span>`, qc.un.B, qc.un.S, qc.un.E, "sub", "disc", null, null));
   } else {
     for (const {c, s} of qc.dc){ qr.push(`<tr class="sub" data-grp="disc"${collapsed.disc?" hidden":""}><td>${c}</td><td></td><td>${fmt(s)} spent</td></tr>`); qr.push(topRow(qc.top, [c], "sub", "disc")); }
   }
