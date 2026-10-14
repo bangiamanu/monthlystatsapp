@@ -135,11 +135,13 @@ function cls(spend, expected, budget){
 function pct(s, b, hc){ return b > 0 ? `<span class="pct${hc?" hl "+hc:""}">(${Math.round((b-s)/b*100)}%)</span>` : ""; }
 // Budget left vs time left, as a relative gap (his rule, 13 Oct 2026): green if budget left >= time left; amber if (time left - budget left) / time left <= 10%; red beyond (or nothing left).
 function lagCls(s, b, timeLeft){ const left = b > 0 ? (b-s)/b : 0; if (left >= timeLeft) return "g"; return left > 0 && (timeLeft-left)/timeLeft <= 0.10 ? "a" : "r"; }
-// Necessities pace gap (his rule, 13 Oct 2026): variable (pace) lines only, (planned spend to date - actual) / planned spend to date.
+// Pace gap in dollars (his rule, 14 Oct 2026): planned spend to date - actual. Necessities use the variable (pace) lines only;
+// Rent and Discretionary use the quarter's planned-to-date. Colour from the same gap as a share of planned: green >= 0, amber 0 to -10%, red below.
 // +10% = 10% under plan so far, -10% = 10% over (= projected month-end over/under). Green >= 0, amber 0 to -10%, red below -10%.
-function gapPct(n){ const v = n.lines.filter(x => x.l.mode !== "fixed"); const E = v.reduce((t,x)=>t+x.e,0), S = v.reduce((t,x)=>t+x.s,0); return E > 0 ? (E-S)/E : 0; }
-function gapCls(g){ return g >= 0 ? "g" : (g >= -0.10 ? "a" : "r"); }
-function gapTxt(g){ const r = Math.round(g*100); return (r > 0 ? "+" : r < 0 ? "−" : "") + Math.abs(r) + "%"; }
+function gapOf(E, S){ return {d: E-S, g: E > 0 ? (E-S)/E : 0}; }
+function gapPct(n){ const v = n.lines.filter(x => x.l.mode !== "fixed"); return gapOf(v.reduce((t,x)=>t+x.e,0), v.reduce((t,x)=>t+x.s,0)); }
+function gapCls(x){ return x.g >= 0 ? "g" : (x.g >= -0.10 ? "a" : "r"); }
+function gapTxt(x){ const r = Math.round(x.d); return (r > 0 ? "+" : r < 0 ? "\u2212" : "") + "$" + Math.abs(r).toLocaleString("en-US"); }
 function row(name, b, s, e, extra, grp, hc, gap){
   const amt = gap === undefined ? cls(s,e,b) : gapCls(gap), tail = gap === undefined ? pct(s,b,hc) : `<span class="pct hl ${gapCls(gap)}">(${gapTxt(gap)})</span>`;
   return `<tr class="${extra||""}"${grp?` data-grp="${grp}"`:""}${grp&&collapsed[grp]?" hidden":""}><td>${name}</td><td class="num">${fmt(b)}</td><td><span class="${amt}">${fmt(b-s)}</span>${tail}</td></tr>`;
@@ -271,11 +273,11 @@ function render(){
 
   const qc = selectedQ && quarterCalc(selectedQ);
   if (!qc){ $("qtable").innerHTML = '<div class="msg">No spend in this quarter yet.</div>'; $("qasof").textContent = ""; bindToggles(); return; }
-  const dcl = lagCls(qc.dd.S, qc.dd.B, 1-qc.qfrac);
-  $("qasof").innerHTML = `${qc.q}: rent and discretionary (${qc.left} days, <b class="${dcl}">${Math.round((1-qc.qfrac)*100)}%</b> of the quarter left)`;
+  
+  $("qasof").textContent = `${qc.q}: rent and discretionary`;
   const disc = config.discretionary;
-  const qr = [row("Rent", qc.r.B, qc.r.S, qc.r.E, "total"), topRow(qc.top, [config.rent.cat], "total"),
-              row(head("disc","Discretionary"), qc.dd.B, qc.dd.S, qc.dd.E, "total", null, dcl)];
+  const qr = [row("Rent", qc.r.B, qc.r.S, qc.r.E, "total", null, null, gapOf(qc.r.E, qc.r.S)), topRow(qc.top, [config.rent.cat], "total"),
+                          row(head("disc","Discretionary"), qc.dd.B, qc.dd.S, qc.dd.E, "total", null, null, gapOf(qc.dd.E, qc.dd.S))];
   if (collapsed.disc) qr.push(topRow(qc.top, qc.cats, "total"));
   if (qc.pl){
     for (const {l, cs, s, e} of qc.pl){
