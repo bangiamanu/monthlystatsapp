@@ -139,12 +139,14 @@ function lagCls(s, b, timeLeft){ const left = b > 0 ? (b-s)/b : 0; if (left >= t
 // Pace gap in dollars (his rule, 14 Oct 2026): planned spend to date - actual. Necessities use the variable (pace) lines only;
 // Rent and Discretionary use the quarter's planned-to-date. Colour from the same gap as a share of planned: green >= 0, amber 0 to -10%, red below.
 // +10% = 10% under plan so far, -10% = 10% over (= projected month-end over/under). Green >= 0, amber 0 to -10%, red below -10%.
-function gapOf(E, S){ return {d: E-S, g: E > 0 ? (E-S)/E : 0}; }
+function gapOf(E, S){ return {d: E-S, g: E > 0 ? (E-S)/E : (S > 0.5 ? -1 : 0)}; }
 function gapPct(n){ const v = n.lines.filter(x => x.l.mode !== "fixed"); return gapOf(v.reduce((t,x)=>t+x.e,0), v.reduce((t,x)=>t+x.s,0)); }
 function gapCls(x){ return x.g >= 0 ? "g" : (x.g >= -0.10 ? "a" : "r"); }
 function gapTxt(x){ const r = Math.round(x.d); return (r > 0 ? "+" : r < 0 ? "\u2212" : "") + "$" + Math.abs(r).toLocaleString("en-US"); }
 function row(name, b, s, e, extra, grp, hc, gap){
-  const amt = gap === undefined ? cls(s,e,b) : gapCls(gap), tail = gap === undefined ? pct(s,b,hc) : `<span class="pct hl ${gapCls(gap)}">(${gapTxt(gap)})</span>`;
+  // Every row (his rule, 14 Oct 2026): dollars left, then the dollar gap to plan to date in brackets, both coloured by the gap rule.
+  if (gap === undefined) gap = gapOf(e, s);
+  const amt = gapCls(gap), tail = `<span class="pct hl ${gapCls(gap)}">(${gapTxt(gap)})</span>`;
   return `<tr class="${extra||""}"${grp?` data-grp="${grp}"`:""}${grp&&collapsed[grp]?" hidden":""}><td>${name}</td><td class="num">${fmt(b)}</td><td><span class="${amt}">${fmt(b-s)}</span>${tail}</td></tr>`;
 }
 let collapsed = {need:true, disc:true};
@@ -169,7 +171,7 @@ function pace(d){
   return {days, day, asOf, frac: Math.min(1, day/days), nfrac: weightedFrac(d.month, day)};
 }
 const qOf = id => { const [y,m] = id.split("-").map(Number); return `${y}-Q${Math.ceil(m/3)}`; };
-const tbl = rows => `<table><thead><tr><th>Category</th><th>Budget</th><th>Left</th></tr></thead><tbody>${rows.join("")}</tbody></table>`;
+const tbl = rows => `<table><thead><tr><th>Category</th><th>Budget</th><th>Left (delta)</th></tr></thead><tbody>${rows.join("")}</tbody></table>`;
 
 // Monthly: Necessities only (weekend-weighted pacing; fixed lines judged against the full month).
 function needCalc(d){
