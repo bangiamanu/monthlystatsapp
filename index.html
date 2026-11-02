@@ -203,10 +203,11 @@ function quarterCalc(q){
   const plan = (disc.plans || {})[q];
   const cats = plan ? [...new Set([...disc.cats, ...plan.lines.flatMap(l => l.cats || [l.cat])])] : disc.cats;
   const dc = cats.map(c => ({c, s: sum(c)}));
-  const dd = {B: disc.budget*3, S: dc.reduce((t,x)=>t+x.s,0), E: disc.budget*3*qfrac};
+  // A plan line's optional 'spent' (his rule, 2 Nov 2026) is a fixed amount counted as spent on that line and in the pool: used to carry a Necessities overrun into Discretionary.
+  const dd = {B: disc.budget*3, S: dc.reduce((t,x)=>t+x.s,0) + (plan ? plan.lines.reduce((t,l)=>t+Number(l.spent||0),0) : 0), E: disc.budget*3*qfrac};
   let pl = null, un = null;
   if (plan){
-    pl = plan.lines.map(l => { const cs = l.cats || [l.cat]; const s = cs.reduce((t,c)=>t+sum(c),0);
+    pl = plan.lines.map(l => { const cs = l.cats || [l.cat]; const s = cs.reduce((t,c)=>t+sum(c),0) + Number(l.spent||0);
       return {l, cs, s, e: l.mode === "fixed" ? l.budget : l.budget*qfrac}; });
     const ub = dd.B - pl.reduce((t,x)=>t+x.l.budget,0), over = pl.reduce((t,x)=>t+Math.max(0, x.s-x.l.budget),0);
     un = {B: ub, S: over, E: ub};
