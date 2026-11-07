@@ -140,7 +140,8 @@ function lagCls(s, b, timeLeft){ const left = b > 0 ? (b-s)/b : 0; if (left >= t
 // Rent and Discretionary use the quarter's planned-to-date. Colour from the same gap as a share of planned: green >= 0, amber 0 to -10%, red below.
 // +10% = 10% under plan so far, -10% = 10% over (= projected month-end over/under). Green >= 0, amber 0 to -10%, red below -10%.
 function gapOf(E, S){ return {d: E-S, g: E > 0 ? (E-S)/E : (S > 0.5 ? -1 : 0)}; }
-function gapPct(n){ const v = n.lines.filter(x => x.l.mode !== "fixed"); return gapOf(v.reduce((t,x)=>t+x.e,0), v.reduce((t,x)=>t+x.s,0)); }
+// Closed month (asOf on the month's last day): judged on the final number, all Necessities lines vs the full budget (his rule, 6 Nov 2026). Current month keeps the pace-lines rule.
+function gapPct(n){ if (n.p.day >= n.p.days) return gapOf(n.B, n.S); const v = n.lines.filter(x => x.l.mode !== "fixed"); return gapOf(v.reduce((t,x)=>t+x.e,0), v.reduce((t,x)=>t+x.s,0)); }
 function gapCls(x){ return x.g >= 0 ? "g" : (x.g >= -0.10 ? "a" : "r"); }
 function gapTxt(x){ const r = Math.round(x.d); return (r > 0 ? "+" : r < 0 ? "\u2212" : "") + "$" + Math.abs(r).toLocaleString("en-US"); }
 function row(name, b, s, e, extra, grp, hc, gap){
