@@ -114,13 +114,19 @@ const $ = id => document.getElementById(id);
 const fmt = n => (n < 0 ? "-$" : "$") + Math.round(Math.abs(n)).toLocaleString("en-US");
 let config = null, months = [], selected = null, selectedQ = null;
 
-// Necessities pacing weights from Jan 2025 to Sep 2026 spend: Sat/Sun days count 1.40, Mon-Fri 0.84 (a week sums to 7).
-const W_WEEKEND = 1.40, W_WEEKDAY = 0.84;
-function weightedFrac(ym, day){
+// Necessities pacing (his rule, 19 Nov 2026): each day adds its own share of the month's plan, by weekday.
+// The weights and the lines they apply to live in config.pace (byDay keyed Sun..Sat, cats = line names); every other pace line counts each day the same.
+const DOW = ["Sun","Mon","Tue","Wed","Thu","Fri","Sat"];
+function weightedFrac(ym, day, w){
   const [y,m] = ym.split("-").map(Number), n = new Date(y, m, 0).getDate();
   let done = 0, all = 0;
-  for (let i = 1; i <= n; i++){ const g = new Date(y, m-1, i).getDay(); const w = (g===0||g===6) ? W_WEEKEND : W_WEEKDAY; all += w; if (i <= day) done += w; }
-  return Math.min(1, done / all);
+  for (let i = 1; i <= n; i++){ const k = w ? Number(w[DOW[new Date(y, m-1, i).getDay()]]) || 0 : 1; all += k; if (i <= day) done += k; }
+  return all > 0 ? Math.min(1, done / all) : Math.min(1, day / n);
+}
+// Share of the month's plan reached for one line: weekday-weighted when config.pace lists the line, plain calendar days otherwise.
+function lineFrac(l, p, ym){
+  const pc = config.pace;
+  return pc && pc.byDay && (pc.cats || []).includes(l.cat) ? weightedFrac(ym, p.day, pc.byDay) : p.frac;
 }
 function daysIn(ym){ const [y,m] = ym.split("-").map(Number); return new Date(y, m, 0).getDate(); }
 function monthName(ym){ const [y,m] = ym.split("-").map(Number); return new Date(y, m-1, 1).toLocaleString("en-US",{month:"long",year:"numeric"}); }
@@ -166,21 +172,21 @@ function head(key, label){
   return `<button type="button" class="tog" id="tog-${key}" data-key="${key}" aria-expanded="${open}" aria-label="${open?"Collapse":"Expand"} ${label}">${open?"\u2212":"+"}</button>${label}`;
 }
 
-// Pacing for one month doc: day reached, calendar share, weekend-weighted share.
+// Pacing for one month doc: day reached and calendar share (lineFrac adds the weekday weighting per line).
 function pace(d){
   const days = daysIn(d.month), asOf = new Date(d.asOf + "T12:00:00");
   const day = asOf.getMonth()+1 === Number(d.month.split("-")[1]) ? asOf.getDate() : days;
-  return {days, day, asOf, frac: Math.min(1, day/days), nfrac: weightedFrac(d.month, day)};
+  return {days, day, asOf, frac: Math.min(1, day/days)};
 }
 const qOf = id => { const [y,m] = id.split("-").map(Number); return `${y}-Q${Math.ceil(m/3)}`; };
 const tbl = rows => `<table><thead><tr><th>Category</th><th>Budget</th><th>Left (delta)</th></tr></thead><tbody>${rows.join("")}</tbody></table>`;
 
-// Monthly: Necessities only (weekend-weighted pacing; fixed lines judged against the full month).
+// Monthly: Necessities only (weekday-weighted pacing on the lines in config.pace; fixed lines judged against the full month).
 function needCalc(d){
   const spend = d.spend || {}, p = pace(d);
   const lines = config.necessities.map(l => {
     const s = l.cats ? l.cats.reduce((t,c)=>t+Number(spend[c]||0),0) : Number(spend[l.cat]||0);
-    return {l, s, e: l.mode === "fixed" ? l.budget : l.budget * p.nfrac};
+    return {l, s, e: l.mode === "fixed" ? l.budget : l.budget * lineFrac(l, p, d.month)};
   });
   const B = lines.reduce((t,x)=>t+x.l.budget,0), S = lines.reduce((t,x)=>t+x.s,0), E = lines.reduce((t,x)=>t+x.e,0);
   return {p, lines, B, S, E};
